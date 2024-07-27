@@ -10,96 +10,66 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
-def get_pdf_text(pdf_docs):
-    text = ""
-    for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
-
-def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=50000, chunk_overlap=1000)
-    chunks = text_splitter.split_text(text)
-    return chunks
-
-def create_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local("Faiss")
-
-def ingest_data():
-    pdf_files = []
-    for file in os.listdir("dataset"):
-        if file.endswith(".pdf"):
-            pdf_files.append(os.path.join("dataset", file))
-
-    raw_text = get_pdf_text(pdf_files)
-    text_chunks = get_text_chunks(raw_text)
-    create_vector_store(text_chunks)
+# Load data and vector store (assuming these are pre-processed using ingest.py)
+def get_data():
+  embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+  new_db = FAISS.load_local("Faiss", embeddings, allow_dangerous_deserialization=True)
+  return new_db
 
 def get_conversational_chain():
-    prompt_template = """
-    You are an experienced psychologist providing mental health care advice based on the provided context. 
-    You will respond to the user's queries by leveraging your psychological expertise and the Context Provided.
-    Provide empathetic, supportive, and actionable advice based on the user's needs.
-    Context: {context}
-    Chat History: {chat_history}
-    Question: {question}
-    Answer:
-    """
-    model = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash-latest", 
-        temperature=0.3, 
-        system_instruction="You are an experienced psychologist providing mental health care advice based on the provided context. You will respond to the user's queries by leveraging your psychological expertise and the Context Provided.")
-    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
-    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
-    return chain
+  prompt_template = """
+  You are an experienced psychologist providing mental health care advice based on the provided context. 
+  You will respond to the user's queries by leveraging your psychological expertise and the Context Provided.
+  Provide empathetic, supportive, and actionable advice based on the user's needs.
+  Context: {context}
+  Chat History: {chat_history}
+  Question: {question}
+  Answer:
+  """
+  model = ChatGoogleGenerativeAI(
+      model="gemini-1.5-flash-latest",
+      temperature=0.6,
+      system_instruction="You are an experienced psychologist providing mental health care advice based on the provided context. You will respond to the user's queries by leveraging your psychological expertise and the Context Provided.")
+  prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
+  chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+  return chain
 
-def user_input(user_question, chat_history):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    new_db = FAISS.load_local("Faiss", embeddings, allow_dangerous_deserialization=True)
-    docs = new_db.similarity_search(user_question)
-    chain = get_conversational_chain()
-    response = chain({"input_documents": docs, "chat_history": chat_history, "question": user_question}, return_only_outputs=True)
-    return response["output_text"]
+def user_input(user_question, chat_history, new_db):
+  docs = new_db.similarity_search(user_question)
+  chain = get_conversational_chain()
+  response = chain.invoke({"input_documents": docs, "chat_history": chat_history, "question": user_question}, return_only_outputs=True)
+  return response["output_text"]
 
 def main():
-    st.set_page_config("Mental Health Care AI", page_icon=":heart:")
-    st.header("Mental Health Care AI :heart:")
-    if "data_ingested" not in st.session_state:
-        st.session_state.data_ingested = False
+  st.set_page_config("Mental Health Care AI", page_icon=":heart:")
+  st.header("Mental Health Care AI :heart:")
 
-    if not st.session_state.data_ingested:
-        st.write("Ingesting data, please wait...")
-        ingest_data()
-        st.session_state.data_ingested = True
-        st.rerun()
+  new_db = get_data()
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Hi I'm your AI Mental Health Advisor"}]
+  if "messages" not in st.session_state:
+    st.session_state.messages = [
+      {"role": "assistant", "content": "Hi I'm your AI Mental Health Advisor"}]
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
+  for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+      st.write(message["content"])
 
-    prompt = st.chat_input("Type your question here...")
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
+  prompt = st.chat_input("Type your question here...")
+  if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+      st.write(prompt)
 
-        if st.session_state.messages[-1]["role"] != "assistant":
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    chat_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
-                    response = user_input(prompt, chat_history)
-                    st.write(response)
+    if st.session_state.messages[-1]["role"] != "assistant":
+      with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+          chat_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
+          response = user_input(prompt, chat_history, new_db)
+          st.write(response)
 
-            if response is not None:
-                message = {"role": "assistant", "content": response}
-                st.session_state.messages.append(message)
+        if response is not None:
+          message = {"role": "assistant", "content": response}
+          st.session_state.messages.append(message)
 
 if __name__ == "__main__":
-    main()
+  main()
