@@ -29,7 +29,7 @@ This project provides a user-friendly interface for interacting with a mental he
 2. **Create a virtual environment (recommended):**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate.bat
+   venv\Scripts\activate   # macOS/Linux: source venv/bin/activate
    ```
 3. **Install dependencies:**
    ```bash
