@@ -8,6 +8,7 @@ import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from transformers import pipeline
+import auth  # Import the auth module
 
 load_dotenv()
 
@@ -15,12 +16,11 @@ load_dotenv()
 # Initialize a classifier pipeline
 classifier = pipeline("text-classification", model="textattack/bert-base-uncased-SST-2")
 
+# Check if the query is within the scope
 def is_in_scope(query):
     result = classifier(query)
     label = result[0]['label']
-    if label == 'NEGATIVE':
-        return False
-    return True
+    return label != 'NEGATIVE'
 
 # Load data and vector store (assuming these are pre-processed using ingest.py)
 def get_data():
@@ -40,7 +40,7 @@ def get_conversational_chain():
     """
     model = ChatGoogleGenerativeAI(
         model="gemini-1.5-flash-latest",
-        temperature=0.6,
+        temperature=0.1,
         system_instruction="You are an experienced psychologist providing mental health care advice based on the provided context. You will respond to the user's queries by leveraging your psychological expertise and the Context Provided.")
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
     chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
@@ -59,7 +59,26 @@ def main():
     st.set_page_config("Mental Health Care AI", page_icon=":brain:")
     st.header("Mental Health Care AI :brain:")
 
-    new_db = get_data()
+    if auth.login_ui():  # Call the login UI from auth module
+        new_db = get_data()
+
+
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+
+        prompt = st.chat_input("Type your question here...")
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            if st.session_state.messages[-1]["role"] != "assistant":
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        chat_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
+                        response = user_input(prompt, chat_history, new_db)
+                        st.write(response)
 
 # Load data and vector store (assuming these are pre-processed using ingest.py)
 def get_data():
@@ -113,16 +132,18 @@ def main():
       st.write(prompt)
 
 
-        if st.session_state.messages[-1]["role"] != "assistant":
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    chat_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
-                    response = user_input(prompt, chat_history, new_db)
-                    st.write(response)
 
-                if response is not None:
-                    message = {"role": "assistant", "content": response}
-                    st.session_state.messages.append(message)
+                    if response is not None:
+                        message = {"role": "assistant", "content": response}
+                        st.session_state.messages.append(message)
+
+                        # Save the message to the database
+                        conn = auth.get_db_connection()
+                        c = conn.cursor()
+                        c.execute("INSERT INTO messages (username, role, content) VALUES (?, ?, ?)", 
+                                  (st.session_state.username, "assistant", response))
+                        conn.commit()
+                        conn.close()
 
     if st.session_state.messages[-1]["role"] != "assistant":
       with st.chat_message("assistant"):
