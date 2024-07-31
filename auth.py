@@ -52,9 +52,26 @@ def login_ui():
     if 'show_registration' not in st.session_state:
         st.session_state.show_registration = False
 
-    if not st.session_state.authenticated:
-        st.subheader("Login")
+    if st.session_state.authenticated:
+        return True
 
+    if st.session_state.show_registration:
+        st.subheader("Register")
+        new_username = st.text_input("New Username")
+        new_password = st.text_input("New Password", type="password")
+        if st.button("Register"):
+            if user_exists(new_username):
+                st.error("Username already exists")
+            else:
+                register_user(new_username, new_password)
+                st.success("Registration successful")
+                st.session_state.show_registration = False
+                st.rerun()  # Refresh to show login page
+        if st.button("Back to Login"):
+            st.session_state.show_registration = False
+            st.rerun()  # Refresh to show login page
+    else:
+        st.subheader("Login")
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         if st.button("Login"):
@@ -68,21 +85,20 @@ def login_ui():
                 for row in c.fetchall():
                     st.session_state.messages.append({"role": row[0], "content": row[1]})
                 conn.close()
-                st.experimental_rerun()
+                st.rerun()  # Refresh to show chat interface
             else:
                 st.error("Invalid username or password")
-
         if st.button("New user? Register"):
             st.session_state.show_registration = True
+            st.rerun()  # Refresh to show registration page
 
-        if st.session_state.show_registration:
-            st.subheader("Register")
-            new_username = st.text_input("New Username")
-            new_password = st.text_input("New Password", type="password")
-            if st.button("Register"):
-                if user_exists(new_username):
-                    st.error("Username already exists")
-                else:
-                    register_user(new_username, new_password)
-                    st.success("Registration successful")
     return st.session_state.authenticated
+
+# Use the login_ui function in your main code
+def main():
+    if login_ui():
+        # Proceed with the rest of your app if authenticated
+        st.write("Logged in!")
+
+if __name__ == "__main__":
+    main()
